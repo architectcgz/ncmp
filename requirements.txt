@@ -1,4 +1,4 @@
 requests>=2.25.0
 pycryptodome>=3.9.0
 PyNaCl>=1.4.0
-pyncm~=1.7.1
+pyncm @ https://files.pythonhosted.org/packages/fa/99/b2cd860956473cece1e4821f5ccabfdb567a37db642fb85536bb5e1b2b5e/pyncm-1.7.1.tar.gz
