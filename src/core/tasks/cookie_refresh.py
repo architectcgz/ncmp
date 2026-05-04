@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 from ...utils.auth import AuthService
 from ...utils.github import GitHubService
@@ -12,7 +12,6 @@ class CookieRefreshTask:
         self.logger = logger
         self.notifier = notifier
         self.auth_service = AuthService(logger)
-        self.github_service = GitHubService(logger)
         
     def execute(self) -> bool:
         """执行Cookie刷新任务"""
@@ -65,7 +64,11 @@ class CookieRefreshTask:
                 "CSRF": cookies.get("Cookie___csrf", "")
             }
             
-            update_success = self.github_service.update_cookies(secrets_to_update)
+            github_service = GitHubService(self.logger)
+            if not all(secrets_to_update.values()):
+                raise RuntimeError("登录成功但返回的 Cookie 不完整")
+
+            update_success = github_service.update_cookies(secrets_to_update)
             
             if update_success:
                 self.logger.info("成功更新GitHub Secrets中的Cookie")

@@ -3,6 +3,7 @@ from typing import Dict
 import requests
 
 from ..utils.config import Config
+from ..utils.http import request_json
 from ..utils.logger import Logger
 from .tasks.daily import DailyTask
 from .tasks.extra import ExtraTask
@@ -41,7 +42,14 @@ class MusicPartnerBot:
         """验证用户信息"""
         try:
             self.logger.info("开始验证用户信息...")
-            response = self.session.get(url=self.api["user_info"]).json()
+            response = request_json(
+                self.session,
+                "GET",
+                self.api["user_info"],
+                self.logger,
+                timeout=self.config.get_http_timeout(),
+                error_context="获取用户信息",
+            )
             
             profile = response.get("profile")
             if profile:

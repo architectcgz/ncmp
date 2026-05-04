@@ -8,11 +8,13 @@ from src.validators.cookie import CookieValidator
 
 
 def main():
+    logger = Logger()
+    notifier = None
     try:
         # 初始化基础组件
         config = Config()
-        logger = Logger()
         notifier = NotificationService(config, logger)
+        config.validate_required(["Cookie_MUSIC_U", "Cookie___csrf"], "主程序")
         
         # 创建会话并设置Cookie
         session = requests.Session()
@@ -20,7 +22,7 @@ def main():
         session.cookies.set("__csrf", config.get("Cookie___csrf"))
         
         # 验证Cookie
-        validator = CookieValidator(session, logger)
+        validator = CookieValidator(session, logger, timeout=config.get_http_timeout())
         is_valid, message = validator.validate()
         
         if not is_valid:
@@ -50,13 +52,14 @@ def main():
         logger.error(error_message)
         logger.end("❌ 执行失败", True)
         
-        try:
-            notifier.send_notification(
-                "网易云音乐合伙人 - 异常提醒",
-                error_message
-            )
-        except Exception as notify_error:
-            logger.error(f"发送异常通知时出错: {str(notify_error)}")
+        if notifier:
+            try:
+                notifier.send_notification(
+                    "网易云音乐合伙人 - 异常提醒",
+                    error_message
+                )
+            except Exception as notify_error:
+                logger.error(f"发送异常通知时出错: {str(notify_error)}")
 
 if __name__ == "__main__":
     main()

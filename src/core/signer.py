@@ -84,57 +84,65 @@ class Signer:
     def sign(self, work: dict, is_extra: bool = False) -> None:
         """为作品评分"""
         try:
-            # 使用配置的等待时间
-            delay = self.config.get_wait_time()
-            self.logger.info(f"等待 {delay:.1f} 秒后继续...")
-            time.sleep(delay)
-
             csrf = str(self.session.cookies["__csrf"])
-            score, tag = self._get_score_and_tag(work)
-            
-            data = {
-                "taskId": self.task_id,
-                "workId": work['id'],
-                "score": score,
-                "tags": tag,
-                "customTags": "%5B%5D",
-                "comment": "",
-                "syncYunCircle": "true",
-                "csrf_token": csrf
-            }
-            
-            # 额外任务需要添加标记
-            if is_extra:
-                data["extraResource"] = "true"
-            
-            params = {
-                "params": self._get_params(data),
-                "encSecKey": self._get_enc_sec_key()
-            }
-            
-            self.logger.debug(f"评分请求数据: {data}")
-            
-            response = self.session.post(
-                url=f'{self.sign_url}?csrf_token={csrf}',
-                data=params
-            ).json()
-            
-            self.logger.debug(f"评分响应数据: {response}")
-            
-            if response["code"] == 200:
-                self.logger.info(f'{work["name"]}「{work["authorName"]}」评分完成：{score}分')
-            else:
-                error_msg = response.get('message') or response.get('msg', '未知错误')
+            max_retries = max(int(self.config.get("rate_limit_retries", 3)), 0)
+
+            for attempt in range(max_retries + 1):
+                delay = self.config.get_wait_time()
+                self.logger.info(f"等待 {delay:.1f} 秒后继续...")
+                time.sleep(delay)
+
+                score, tag = self._get_score_and_tag(work)
+                data = {
+                    "taskId": self.task_id,
+                    "workId": work['id'],
+                    "score": score,
+                    "tags": tag,
+                    "customTags": "%5B%5D",
+                    "comment": "",
+                    "syncYunCircle": "true",
+                    "csrf_token": csrf
+                }
+
+                if is_extra:
+                    data["extraResource"] = "true"
+
+                params = {
+                    "params": self._get_params(data),
+                    "encSecKey": self._get_enc_sec_key()
+                }
+
+                self.logger.debug(f"评分请求数据: {data}")
+                response = self.session.post(
+                    url=f'{self.sign_url}?csrf_token={csrf}',
+                    data=params,
+                    timeout=self.config.get_http_timeout(),
+                )
+                response.raise_for_status()
+                payload = response.json()
+                self.logger.debug(f"评分响应数据: {payload}")
+
+                if payload["code"] == 200:
+                    self.logger.info(f'{work["name"]}「{work["authorName"]}」评分完成：{score}分')
+                    return
+
+                error_msg = payload.get('message') or payload.get('msg', '未知错误')
                 if "频繁" in error_msg:
+                    if attempt >= max_retries:
+                        raise RuntimeError(
+                            f"评分失败: 已达到频率限制最大重试次数 {max_retries}"
+                        )
                     retry_delay = self.config.get_wait_time()
-                    self.logger.info(f"遇到频率限制，等待 {retry_delay:.1f} 秒后重试...")
+                    self.logger.info(
+                        f"遇到频率限制，等待 {retry_delay:.1f} 秒后进行第 {attempt + 1}/{max_retries} 次重试..."
+                    )
                     time.sleep(retry_delay)
-                    self.sign(work, is_extra)
-                elif response["code"] == 405 and "资源状态异常" in error_msg:
+                    continue
+                if payload["code"] == 405 and "资源状态异常" in error_msg:
                     self.logger.warning(f'歌曲「{work["name"]}」资源状态异常，跳过')
-                else:
-                    raise RuntimeError(f"评分失败: {error_msg} (响应码: {response.get('code')})")
+                    return
+                raise RuntimeError(f"评分失败: {error_msg} (响应码: {payload.get('code')})")
                 
         except Exception as e:
             self.logger.error(f'歌曲「{work["name"]}」评分异常：{str(e)}')
-            raise RuntimeError(f"评分过程出错: {str(e)}") 
+            raise RuntimeError(f"评分过程出错: {str(e)}")

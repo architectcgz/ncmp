@@ -10,10 +10,10 @@ from src.utils.notification import NotificationService
 
 
 def main():
+    logger = Logger()
     try:
         # 初始化基础组件
         config = Config()
-        logger = Logger()
         notifier = NotificationService(config, logger)
         
         if not os.environ.get("NETEASE_PHONE") and config.get("netease_phone"):
@@ -30,6 +30,11 @@ def main():
             
         if not os.environ.get("GH_REPO") and config.get("gh_repo"):
             os.environ["GH_REPO"] = config.get("gh_repo")
+
+        config.validate_required(["netease_phone"], "Cookie刷新")
+        if not (config.get("netease_md5_password") or config.get("netease_password") or os.environ.get("NETEASE_MD5_PASSWORD") or os.environ.get("NETEASE_PASSWORD")):
+            raise ValueError("Cookie刷新缺少必要配置项: netease_password 或 netease_md5_password")
+        config.validate_required(["gh_token", "gh_repo"], "Cookie刷新")
         
         # 初始化并执行刷新任务
         task = CookieRefreshTask(logger, notifier)
@@ -43,7 +48,6 @@ def main():
             
     except Exception as e:
         error_message = f"Cookie刷新程序异常: {str(e)}"
-        logger = Logger()
         logger.error(error_message)
         
         try:

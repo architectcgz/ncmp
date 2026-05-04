@@ -1,9 +1,8 @@
-import json
-import random
 import time
 from typing import Dict, List, Tuple
 
 from src.core.signer import Signer
+from src.utils.http import request_json
 
 
 class ExtraTask:
@@ -73,11 +72,15 @@ class ExtraTask:
     def _get_extra_tasks(self) -> Tuple[List[Dict], int]:
         """获取额外评分任务列表"""
         try:
-            response = self.session.get(
-                url=self.api["extra_list"],
-                headers={"Referer": "https://mp.music.163.com/"}
-            ).json()
-
+            response = request_json(
+                self.session,
+                "GET",
+                self.api["extra_list"],
+                self.logger,
+                timeout=self.config.get_http_timeout(),
+                error_context="获取额外任务列表",
+                headers={"Referer": "https://mp.music.163.com/"},
+            )
             if response["code"] != 200:
                 raise RuntimeError(f"获取额外任务失败: {response.get('message', '未知错误')}")
 
@@ -127,11 +130,16 @@ class ExtraTask:
                 "encSecKey": self.signer._get_enc_sec_key()
             }
             
-            response = self.session.post(
-                url=f"{self.api['report_listen']}?csrf_token={csrf}",
+            response = request_json(
+                self.session,
+                "POST",
+                f"{self.api['report_listen']}?csrf_token={csrf}",
+                self.logger,
+                timeout=self.config.get_http_timeout(),
+                error_context="上报听歌记录",
                 data=params,
-                headers={"Referer": "https://mp.music.163.com/"}
-            ).json()
+                headers={"Referer": "https://mp.music.163.com/"},
+            )
 
             if response["code"] != 200:
                 raise RuntimeError(f"上报听歌记录失败: {response.get('message', '未知错误')}")

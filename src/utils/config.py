@@ -1,7 +1,7 @@
 import json
 import os
 import random
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable
 
 
 class Config:
@@ -9,20 +9,19 @@ class Config:
         self.config_data: Dict = self._load_config()
     
     def _load_config(self) -> Dict:
-        if self._check_env_variables():
-            return self._load_from_env()
-        return self._load_from_file()
-    
-    def _check_env_variables(self) -> bool:
-        required_vars = ["MUSIC_U", "CSRF"]
-        return all(os.getenv(var) for var in required_vars)
+        config = self._load_from_file()
+        config.update(self._load_from_env())
+        self._apply_defaults(config)
+        return config
     
     def _load_from_env(self) -> Dict:
         config = {}
         
-        # 必需的环境变量
-        config["Cookie_MUSIC_U"] = os.getenv("MUSIC_U")
-        config["Cookie___csrf"] = os.getenv("CSRF")
+        # Cookie 环境变量只在显式提供时覆盖文件配置
+        if music_u := os.getenv("MUSIC_U"):
+            config["Cookie_MUSIC_U"] = music_u
+        if csrf := os.getenv("CSRF"):
+            config["Cookie___csrf"] = csrf
         
         # 可选的环境变量
         if notify_email := os.getenv("NOTIFY_EMAIL"):
@@ -55,10 +54,6 @@ class Config:
             config["gh_token"] = gh_token
         if gh_repo := os.getenv("GH_REPO"):
             config["gh_repo"] = gh_repo
-            
-        config.setdefault("wait_time_min", 15)
-        config.setdefault("wait_time_max", 20)
-        config.setdefault("score", 3)  # 默认使用3-4分策略
         
         return config
     
@@ -66,30 +61,31 @@ class Config:
         try:
             config_path = "config/setting.json"
             if not os.path.exists(config_path):
-                raise FileNotFoundError(f"配置文件 {config_path} 不存在")
+                return {}
                 
             with open(config_path, "r", encoding="utf-8") as file:
                 config = json.loads(file.read())
-                
-            self._validate_config(config)
+
             return config
             
         except Exception as e:
             raise RuntimeError(f"配置加载失败: {str(e)}")
-            
-    def _validate_config(self, config: Dict) -> None:
-        required_keys = ["Cookie_MUSIC_U", "Cookie___csrf"]
-        for key in required_keys:
-            if not config.get(key):
-                raise ValueError(f"配置文件中缺少必要的配置项: {key}")
-        
-        # 设置默认值
+
+    def _apply_defaults(self, config: Dict) -> None:
         config.setdefault("wait_time_min", 15)
         config.setdefault("wait_time_max", 20)
         config.setdefault("smtp_server", "smtp.gmail.com")
         config.setdefault("smtp_port", 465)
         config.setdefault("score", 3)
         config.setdefault("full_extra_tasks", False)
+        config.setdefault("http_timeout", 15)
+        config.setdefault("rate_limit_retries", 3)
+
+    def validate_required(self, required_keys: Iterable[str], context: str) -> None:
+        missing_keys = [key for key in required_keys if not self.get(key)]
+        if missing_keys:
+            missing = ", ".join(missing_keys)
+            raise ValueError(f"{context}缺少必要配置项: {missing}")
 
     def get(self, key: str, default: Any = None) -> Any:
         """获取配置项"""
@@ -100,3 +96,7 @@ class Config:
         min_time = float(self.get("wait_time_min", 15))
         max_time = float(self.get("wait_time_max", 20))
         return random.uniform(min_time, max_time)
+
+    def get_http_timeout(self) -> float:
+        """获取 HTTP 请求超时时间"""
+        return float(self.get("http_timeout", 15))

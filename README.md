@@ -154,13 +154,19 @@ ncmp(NetEase Cloud Music Partner/网易云音乐合伙人)
 5. 运行测试脚本确认配置正确：
 
    ```bash
-   python tests/test_auto_score.py
+   python3 -m unittest tests.test_runtime_hardening -v
+   ```
+
+   如需额外做手工联调，可再运行：
+
+   ```bash
+   python3 tests/test_auto_score.py
    ```
 
 6. 运行主程序：
 
    ```bash
-   python main.py
+   python3 main.py
    ```
 
 ### 方式二：GitHub Actions 自动执行
@@ -193,6 +199,7 @@ ncmp(NetEase Cloud Music Partner/网易云音乐合伙人)
 - 建议使用 GitHub Actions 的定时任务功能，避免遗漏每日任务
 - 网易云音乐的 Cookie 两周左右就会过期，建议配置邮箱以便及时收到失效通知
 - Cookie 自动刷新使用了[pyncm](https://github.com/mos9527/pyncm)库进行登陆，如果使用明文会自动将密码进行md5加密
+- `refresh_cookie.py` 可在旧 Cookie 缺失时独立运行，但仍需要手机号、密码（明文或 MD5）以及 `GH_TOKEN`、`GH_REPO`
 
 ## 声明
 

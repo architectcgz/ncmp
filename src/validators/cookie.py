@@ -2,13 +2,15 @@ from typing import Tuple
 
 import requests
 
+from ..utils.http import request_json
 from ..utils.logger import Logger
 
 
 class CookieValidator:
-    def __init__(self, session: requests.Session, logger: Logger):
+    def __init__(self, session: requests.Session, logger: Logger, timeout: float = 15):
         self.session = session
         self.logger = logger
+        self.timeout = timeout
         self.check_urls = {
             "user_info": "https://music.163.com/api/nuser/account/get",
             "task_data": "https://interface.music.163.com/api/music/partner/daily/task/get"
@@ -40,10 +42,24 @@ class CookieValidator:
         
     def _check_user_info(self) -> bool:
         """检查用户信息是否有效"""
-        response = self.session.get(self.check_urls["user_info"]).json()
+        response = request_json(
+            self.session,
+            "GET",
+            self.check_urls["user_info"],
+            self.logger,
+            timeout=self.timeout,
+            error_context="校验用户信息",
+        )
         return bool(response.get("code") == 200 and response.get("profile"))
         
     def _check_task_access(self) -> bool:
         """检查是否有任务访问权限"""
-        response = self.session.get(self.check_urls["task_data"]).json()
+        response = request_json(
+            self.session,
+            "GET",
+            self.check_urls["task_data"],
+            self.logger,
+            timeout=self.timeout,
+            error_context="校验音乐合伙人任务权限",
+        )
         return response.get("code") == 200 

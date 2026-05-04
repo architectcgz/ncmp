@@ -1,5 +1,4 @@
 import base64
-import json
 import os
 from typing import Dict, Optional
 
@@ -8,6 +7,7 @@ import nacl.public
 import requests
 
 from ..utils.logger import Logger
+from .http import request_json
 
 
 class GitHubService:
@@ -15,8 +15,11 @@ class GitHubService:
         self.logger = logger
         self.api_base = "https://api.github.com"
         self.token = os.environ.get("GH_TOKEN")
-        self.repo_owner = os.environ.get("GH_REPO").split("/")[0]
-        self.repo_name = os.environ.get("GH_REPO", "").split("/")[-1]
+        repo = os.environ.get("GH_REPO", "")
+        self.repo_owner = ""
+        self.repo_name = ""
+        if repo and "/" in repo:
+            self.repo_owner, self.repo_name = repo.split("/", 1)
         
         if not self.token:
             raise ValueError("GitHub Token未设置，无法更新Secrets")
@@ -33,13 +36,15 @@ class GitHubService:
         """获取仓库的公钥，用于加密secrets"""
         try:
             url = f"{self.api_base}/repos/{self.repo_owner}/{self.repo_name}/actions/secrets/public-key"
-            response = requests.get(url, headers=self.headers)
-            
-            if response.status_code != 200:
-                self.logger.error(f"获取公钥失败: {response.status_code} - {response.text}")
-                return None
-                
-            return response.json()
+            return request_json(
+                requests.Session(),
+                "GET",
+                url,
+                self.logger,
+                timeout=15,
+                error_context="获取 GitHub 公钥",
+                headers=self.headers,
+            )
         except Exception as e:
             self.logger.error(f"获取公钥时出错: {str(e)}")
             return None
@@ -87,15 +92,15 @@ class GitHubService:
                 "key_id": encrypted_data["key_id"]
             }
             
-            response = requests.put(url, headers=self.headers, json=payload)
-            
-            if response.status_code not in (201, 204):
-                self.logger.error(f"更新secret '{secret_name}'失败: {response.status_code} - {response.text}")
-                return False
+            response = requests.put(url, headers=self.headers, json=payload, timeout=15)
+            response.raise_for_status()
                 
             self.logger.info(f"成功更新secret: {secret_name}")
             return True
             
+        except requests.RequestException as e:
+            self.logger.error(f"更新secret '{secret_name}'失败: {str(e)}")
+            return False
         except Exception as e:
             self.logger.error(f"更新secret '{secret_name}'时出错: {str(e)}")
             return False

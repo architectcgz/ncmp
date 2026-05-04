@@ -1,6 +1,7 @@
 from typing import Dict, Tuple
 
 from ..signer import Signer
+from ...utils.http import request_json
 from .base import BaseTask
 
 
@@ -23,7 +24,16 @@ class DailyTask(BaseTask):
 
     def _get_daily_tasks(self) -> Tuple[bool, Dict]:
         """获取每日任务"""
-        response = self.session.get(url=self.api["task_data"]).json()
+        response = request_json(
+            self.session,
+            "GET",
+            self.api["task_data"],
+            self.logger,
+            timeout=self.config.get_http_timeout(),
+            error_context="获取每日任务",
+        )
+        if response.get("code") != 200:
+            raise RuntimeError(f"获取每日任务失败: {response.get('message', '未知错误')}")
         task_data = response.get("data", {})
         
         count = task_data.get("count", 0)
