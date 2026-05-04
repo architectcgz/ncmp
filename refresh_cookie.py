@@ -43,8 +43,10 @@ def main():
         # 处理执行结果
         if success:
             logger.info("✅ Cookie刷新成功")
+            return 0
         else:
             logger.error("❌ Cookie刷新失败")
+            return 1
             
     except Exception as e:
         error_message = f"Cookie刷新程序异常: {str(e)}"
@@ -59,7 +61,8 @@ def main():
             )
         except Exception as notify_error:
             logger.error(f"发送异常通知时出错: {str(notify_error)}")
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

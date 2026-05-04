@@ -189,6 +189,7 @@ class RefreshCookieFlowTest(unittest.TestCase):
         logger = mock.Mock()
         config = mock.Mock()
         config.get.side_effect = lambda key, default=None: None
+        config.validate_required.return_value = None
         task = mock.Mock()
         task.execute.return_value = True
 
@@ -199,15 +200,17 @@ class RefreshCookieFlowTest(unittest.TestCase):
         ), mock.patch.object(
             refresh_cookie_module, "CookieRefreshTask", return_value=task
         ):
-            refresh_cookie_module.main()
+            exit_code = refresh_cookie_module.main()
 
         task.execute.assert_called_once()
         logger.info.assert_any_call("✅ Cookie刷新成功")
+        self.assertEqual(exit_code, 0)
 
     def test_refresh_cookie_failure_path(self):
         logger = mock.Mock()
         config = mock.Mock()
         config.get.side_effect = lambda key, default=None: None
+        config.validate_required.return_value = None
         task = mock.Mock()
         task.execute.return_value = False
 
@@ -218,10 +221,27 @@ class RefreshCookieFlowTest(unittest.TestCase):
         ), mock.patch.object(
             refresh_cookie_module, "CookieRefreshTask", return_value=task
         ):
-            refresh_cookie_module.main()
+            exit_code = refresh_cookie_module.main()
 
         task.execute.assert_called_once()
         logger.error.assert_any_call("❌ Cookie刷新失败")
+        self.assertEqual(exit_code, 1)
+
+    def test_refresh_cookie_exception_path(self):
+        logger = mock.Mock()
+        config = mock.Mock()
+        config.validate_required.side_effect = ValueError("Cookie刷新缺少必要配置项: netease_phone")
+        notifier = mock.Mock()
+
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            refresh_cookie_module, "Logger", return_value=logger
+        ), mock.patch.object(refresh_cookie_module, "Config", return_value=config), mock.patch.object(
+            refresh_cookie_module, "NotificationService", return_value=notifier
+        ):
+            exit_code = refresh_cookie_module.main()
+
+        self.assertTrue(logger.error.called)
+        self.assertEqual(exit_code, 1)
 
 
 if __name__ == "__main__":
