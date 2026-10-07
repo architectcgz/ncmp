@@ -76,7 +76,7 @@ class Config:
         config.setdefault("wait_time_max", 20)
         config.setdefault("smtp_server", "smtp.gmail.com")
         config.setdefault("smtp_port", 465)
-        config.setdefault("score", 3)
+        config.setdefault("score", 0)
         config.setdefault("full_extra_tasks", False)
         config.setdefault("http_timeout", 15)
         config.setdefault("rate_limit_retries", 3)

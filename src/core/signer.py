@@ -2,7 +2,6 @@ import base64
 import codecs
 import json
 import random
-import re
 import string
 import time
 from typing import Tuple
@@ -11,7 +10,9 @@ import requests
 from Crypto.Cipher import AES
 
 from ..utils.config import Config
+from ..utils.http import request_json
 from ..utils.logger import Logger
+from .reviews import evaluate_comments
 
 
 class Signer:
@@ -29,8 +30,6 @@ class Signer:
         self.iv = "0102030405060708"
         self.aes_key = "0CoJUm6Qyw8W8jud"
         
-        self.name_pattern = re.compile('.*[a-zA-Z].*')
-
     def _generate_random_string(self, length: int) -> str:
         """生成指定长度的随机字符串"""
         return ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
@@ -61,25 +60,58 @@ class Signer:
         rs = pow(rs, int(self.pub_key, 16), int(self.modulus, 16))
         return format(rs, 'x').zfill(256)
 
-    def _get_score_and_tag(self, work: dict) -> Tuple[str, str]:
-        """根据作品信息获取评分和标签"""
-        # 获取评分策略，默认为4（3-4分）
-        score_strategy = int(self.config.get("score", 3))
-        
-        # 检查名称中是否包含英文
-        has_english = bool(self.name_pattern.match(work["name"] + work["authorName"]))
-        
-        # 根据策略和名称决定评分
-        if score_strategy == 1:  # 1-2分策略
-            score = "2" if has_english else "1"
-        elif score_strategy == 2:  # 2-3分策略
-            score = "3" if has_english else "2"
-        elif score_strategy == 3:  # 3-4分策略（默认）
-            score = "4" if has_english else "3"
-        else:  # 固定4分
-            score = "4"
-            
-        return score, f"{score}-A-1"
+    def _get_evaluation(self, work: dict) -> Tuple[str, str, str]:
+        """获取待提交的分数、标签和评价；评论不可用时记录原因并回退。"""
+        strategy = self.config.get("score", 0)
+        if isinstance(strategy, bool) or not isinstance(strategy, int) or strategy not in range(5):
+            raise ValueError("score 必须是 0～4 的整数")
+        if strategy == 0:
+            try:
+                evaluation = self._get_comment_evaluation(work)
+                if evaluation is not None:
+                    self.logger.info(f'歌曲「{work["name"]}」参考评价：{evaluation[2]}')
+                    return evaluation
+                reason = "可用的独立音乐评价不足 3 条"
+            except (RuntimeError, ValueError, TypeError) as exc:
+                reason = str(exc)
+            self.logger.warning(f'歌曲「{work["name"]}」无法参考评论：{reason}；回退为 3 分，不填写评价')
+            return "3", "3-A-1", ""
+
+        # 保留原有分数范围，去掉歌名和作者名中英文字符带来的偏差。
+        score = str(random.randint(strategy, strategy + 1)) if strategy < 4 else "4"
+        return score, f"{score}-A-1", ""
+
+    def _get_comment_evaluation(self, work: dict) -> Tuple[str, str, str] | None:
+        """通过歌曲 resourceId 读取一页公开评论，不使用合伙人的 workId 查询歌曲。"""
+        resource_id = str(work.get("resourceId", ""))
+        if not resource_id.isascii() or not resource_id.isdigit() or int(resource_id) <= 0:
+            raise ValueError("缺少有效的歌曲 resourceId")
+        if work.get("resourceType", "SONG") != "SONG":
+            raise ValueError("资源不是歌曲，无法读取歌曲评论")
+        data = {
+            "rid": resource_id,
+            "limit": 20,
+            "offset": 0,
+            "beforeTime": 0,
+            "csrf_token": str(self.session.cookies["__csrf"]),
+        }
+        payload = request_json(
+            self.session,
+            "POST",
+            f"https://music.163.com/weapi/v1/resource/comments/R_SO_4_{resource_id}",
+            self.logger,
+            timeout=self.config.get_http_timeout(),
+            error_context="获取歌曲公开评论",
+            data={"params": self._get_params(data), "encSecKey": self._get_enc_sec_key()},
+            headers={"Referer": "https://music.163.com/"},
+        )
+        if not isinstance(payload, dict) or payload.get("code") != 200:
+            raise RuntimeError("公开评论接口未返回成功结果")
+        hot_comments = payload.get("hotComments", [])
+        comments = payload.get("comments", [])
+        if not isinstance(hot_comments, list) or not isinstance(comments, list):
+            raise RuntimeError("公开评论接口返回的评论列表格式异常")
+        return evaluate_comments(hot_comments + comments)
 
     def sign(self, work: dict, is_extra: bool = False) -> None:
         """为作品评分"""
@@ -87,25 +119,27 @@ class Signer:
             csrf = str(self.session.cookies["__csrf"])
             max_retries = max(int(self.config.get("rate_limit_retries", 3)), 0)
 
+            # 同一作品只生成一次评价，限流重试时复用，避免改分或重复查询评论。
+            score, tag, comment = self._get_evaluation(work)
+            data = {
+                "taskId": self.task_id,
+                "workId": work['id'],
+                "score": score,
+                "tags": tag,
+                "customTags": "%5B%5D",
+                "comment": comment,
+                "syncYunCircle": False if comment else "true",
+                "csrf_token": csrf
+            }
+            if comment:
+                data["syncComment"] = False
+            if is_extra:
+                data["extraResource"] = "true"
+
             for attempt in range(max_retries + 1):
                 delay = self.config.get_wait_time()
                 self.logger.info(f"等待 {delay:.1f} 秒后继续...")
                 time.sleep(delay)
-
-                score, tag = self._get_score_and_tag(work)
-                data = {
-                    "taskId": self.task_id,
-                    "workId": work['id'],
-                    "score": score,
-                    "tags": tag,
-                    "customTags": "%5B%5D",
-                    "comment": "",
-                    "syncYunCircle": "true",
-                    "csrf_token": csrf
-                }
-
-                if is_extra:
-                    data["extraResource"] = "true"
 
                 params = {
                     "params": self._get_params(data),
