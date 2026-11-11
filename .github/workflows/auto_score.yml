@@ -7,7 +7,7 @@ on:
 
 jobs:
   score:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # 匹配 Python 3.12.11 的官方构建，避免 ubuntu-latest 升级后不兼容。
     
     steps:
     - uses: actions/checkout@v6
